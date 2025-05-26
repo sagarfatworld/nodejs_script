@@ -1,7 +1,7 @@
 {
   "name": "simple-node-server",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "Server1.js",
   "scripts": {
     "start": "node server1.js"
   },
