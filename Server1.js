@@ -5,7 +5,13 @@ const crypto = require('crypto');
 const cors = require('cors');
 const app = express();
 
-app.use(cors());
+// Enable CORS for all routes
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-livechat-signature', 'X-LiveChat-Signature']
+}));
+
 app.use(bodyParser.json());
 
 // === CONFIGURATION ===
@@ -13,6 +19,9 @@ const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b
 const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3';
 const WEBHOOK_SECRET = 'favtA04Ih2k3Iw4Dlav08faxm7Gn6bnz';
 const PORT = process.env.PORT || 3000;
+
+// Store latest message
+let latestMessage = null;
 
 // Helper to verify webhook signature
 function verifySignature(req) {
@@ -27,6 +36,7 @@ function verifySignature(req) {
     return signature === digest;
 }
 
+// Webhook POST endpoint
 app.post('/livechat/webhook', async (req, res) => {
     console.log('Webhook received, body:', JSON.stringify(req.body, null, 2));
 
@@ -60,14 +70,18 @@ app.post('/livechat/webhook', async (req, res) => {
             }
         });
 
-        // Extract and log bot's response
+        // Extract bot's response
         const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
         console.log('Bot Response:', botAnswer);
 
-        res.status(200).json({
+        // Store the latest message
+        latestMessage = {
             visitorMessage: messageText,
-            botResponse: botAnswer
-        });
+            botResponse: botAnswer,
+            timestamp: new Date().toISOString()
+        };
+
+        res.status(200).json(latestMessage);
 
     } catch (error) {
         console.error('Error processing message:', error);
@@ -75,10 +89,27 @@ app.post('/livechat/webhook', async (req, res) => {
     }
 });
 
+// GET endpoint for frontend to fetch latest message
+app.get('/livechat/webhook', (req, res) => {
+    if (latestMessage) {
+        res.json(latestMessage);
+    } else {
+        res.json({ message: 'No messages yet' });
+    }
+});
+
+// GET endpoint to fetch all messages (optional)
+app.get('/livechat/messages', (req, res) => {
+    res.json({ messages: latestMessage ? [latestMessage] : [] });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
+
+// Serve static files (optional - if you want to serve the HTML from the same server)
+app.use(express.static('public'));
 
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
