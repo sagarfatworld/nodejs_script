@@ -33,7 +33,7 @@ function verifySignature(req) {
   return signature === digest;
 }
 
-// Log incoming requests for debugging
+// UPDATED: Webhook handler with new message capture logic
 app.post('/livechat/webhook', async (req, res) => {
   console.log('Webhook received, body:', JSON.stringify(req.body, null, 2));
 
@@ -42,46 +42,27 @@ app.post('/livechat/webhook', async (req, res) => {
     return res.status(401).send('Invalid signature');
   }
 
-  const event = req.body.event;
-  if (event !== 'incoming_chat' && event !== 'incoming_event') {
-  console.log('Ignoring event:', event);
-  return res.status(200).send('Not interested event');
-}
-
-  const chat = req.body.data.chat;
-  if (!chat) {
-    console.error('No chat in payload');
-    return res.status(200).send('No chat data');
+  // Check if it's a message event
+  if (req.body.action !== 'incoming_event') {
+    return res.status(200).send('Not interested event');
   }
 
-  const agent = chat.owner; // agent assigned to chat
-  if (!agent || !agent.id) {
-    console.log('No agent assigned yet');
-    return res.status(200).send('No agent assigned yet');
+  const event = req.body.payload?.event;
+  if (!event || event.type !== 'message') {
+    return res.status(200).send('Not a message event');
   }
 
-  const messages = chat.messages || [];
-  const visitorMsg = messages.find(m => m.author_type === 'visitor' && m.type === 'message');
-  if (!visitorMsg) {
-    console.log('No visitor message');
-    return res.status(200).send('No visitor message');
+  const messageText = event.text?.trim();
+  if (!messageText) {
+    return res.status(200).send('Empty message');
   }
-
-  const visitorQuestion = visitorMsg.text.trim();
-  if (!visitorQuestion) {
-    console.log('Empty visitor message');
-    return res.status(200).send('Empty visitor message');
-  }
-
-  // Log agent and message info
-  console.log(`Agent: ${agent.id}, Visitor message: ${visitorQuestion}`);
 
   try {
     const payload = {
       data: {
         payload: {
           override_model: 'sonar',
-          clientQuestion: visitorQuestion
+          clientQuestion: messageText
         }
       },
       should_stream: false
@@ -98,11 +79,12 @@ app.post('/livechat/webhook', async (req, res) => {
     const botAnswer = botResp.data?.data?.content || botResp.data?.message || "No answer from bot";
     console.log('Bot response:', botAnswer);
 
-    // Store Q&A per agent (for demo; you can use a database in production)
-    if (!agentQAs[agent.id]) {
-      agentQAs[agent.id] = [];
+    // Store Q&A
+    const authorId = event.author_id;
+    if (!agentQAs[authorId]) {
+      agentQAs[authorId] = [];
     }
-    agentQAs[agent.id].push({ question: visitorQuestion, answer: botAnswer });
+    agentQAs[authorId].push({ question: messageText, answer: botAnswer });
 
     res.status(200).send('Processed');
   } catch (error) {
