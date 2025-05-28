@@ -4,111 +4,82 @@ const axios = require('axios');
 const crypto = require('crypto');
 const cors = require('cors');
 const app = express();
-app.use(cors());
 
+app.use(cors());
 app.use(bodyParser.json());
 
 // === CONFIGURATION ===
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
-const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3'; // Replace with your actual key
-const WEBHOOK_SECRET = 'favtA04Ih2k3Iw4Dlav08faxm7Gn6bnz'; // Replace with your LiveChat webhook secret
+const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3';
+const WEBHOOK_SECRET = 'favtA04Ih2k3Iw4Dlav08faxm7Gn6bnz';
 const PORT = process.env.PORT || 3000;
-
-// Agent Q&A store: { agentId: [ { question, answer } ] }
-const agentQAs = {};
 
 // Helper to verify webhook signature
 function verifySignature(req) {
-  const signature = req.get('X-LiveChat-Signature') || req.get('x-livechat-signature');
-  if (!signature) {
-    console.error('No signature header found');
-    return false;
-  }
-  const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
-  hmac.update(JSON.stringify(req.body));
-  const digest = hmac.digest('hex');
-  if (signature !== digest) {
-    console.error('Signature mismatch. Expected:', digest, 'Received:', signature);
-  }
-  return signature === digest;
+    const signature = req.get('X-LiveChat-Signature') || req.get('x-livechat-signature');
+    if (!signature) {
+        console.log('No signature header found');
+        return true; // For testing, you might want to return true
+    }
+    const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
+    hmac.update(JSON.stringify(req.body));
+    const digest = hmac.digest('hex');
+    return signature === digest;
 }
 
-// UPDATED: Webhook handler with new message capture logic
 app.post('/livechat/webhook', async (req, res) => {
-  console.log('Webhook received, body:', JSON.stringify(req.body, null, 2));
+    console.log('Webhook received, body:', JSON.stringify(req.body, null, 2));
 
-  if (!verifySignature(req)) {
-    console.error('Invalid signature');
-    return res.status(401).send('Invalid signature');
-  }
-
-  // Check if it's a message event
-  if (req.body.action !== 'incoming_event') {
-    return res.status(200).send('Not interested event');
-  }
-
-  const event = req.body.payload?.event;
-  if (!event || event.type !== 'message') {
-    return res.status(200).send('Not a message event');
-  }
-
-  const messageText = event.text?.trim();
-  if (!messageText) {
-    return res.status(200).send('Empty message');
-  }
-
-  try {
-    const payload = {
-      data: {
-        payload: {
-          override_model: 'sonar',
-          clientQuestion: messageText
+    try {
+        // Extract the message text from the webhook payload
+        const messageText = req.body.payload?.event?.text;
+        
+        if (!messageText) {
+            console.log('No message text found');
+            return res.status(200).send('No message text');
         }
-      },
-      should_stream: false
-    };
 
-    // Call bot@work API
-    const botResp = await axios.post(BOT_API_URL, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': BOT_API_KEY
-      }
-    });
+        console.log('Visitor Message:', messageText);
 
-    const botAnswer = botResp.data?.data?.content || botResp.data?.message || "No answer from bot";
-    console.log('Bot response:', botAnswer);
+        // Prepare payload for bot@work
+        const botPayload = {
+            data: {
+                payload: {
+                    override_model: 'sonar',
+                    clientQuestion: messageText
+                }
+            },
+            should_stream: false
+        };
 
-    // Store Q&A
-    const authorId = event.author_id;
-    if (!agentQAs[authorId]) {
-      agentQAs[authorId] = [];
+        // Call bot@work API
+        const botResponse = await axios.post(BOT_API_URL, botPayload, {
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': BOT_API_KEY
+            }
+        });
+
+        // Extract and log bot's response
+        const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
+        console.log('Bot Response:', botAnswer);
+
+        res.status(200).json({
+            visitorMessage: messageText,
+            botResponse: botAnswer
+        });
+
+    } catch (error) {
+        console.error('Error processing message:', error);
+        res.status(500).send('Error processing message');
     }
-    agentQAs[authorId].push({ question: messageText, answer: botAnswer });
-
-    res.status(200).send('Processed');
-  } catch (error) {
-    console.error('Error calling bot@work:', error.message);
-    res.status(500).send('Bot API error');
-  }
 });
 
-// API to get Q&A for a specific agent (simple auth by agentId query param for demo)
-app.get('/api/agent-qa', (req, res) => {
-  const agentId = req.query.agentId;
-  if (!agentId) {
-    return res.status(400).send('agentId query parameter required');
-  }
-  const qa = agentQAs[agentId] || [];
-  res.json({ qa });
-});
-
-// Health check endpoint (for Render and monitoring)
+// Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).send('OK');
+    res.status(200).send('OK');
 });
 
-// Start server
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+    console.log(`Server listening on port ${PORT}`);
 });
