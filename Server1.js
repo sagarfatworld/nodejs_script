@@ -43,10 +43,10 @@ app.post('/livechat/webhook', async (req, res) => {
   }
 
   const event = req.body.event;
-  if (event !== 'incoming_chat') {
-    console.log('Ignoring event:', event);
-    return res.status(200).send('Not interested event');
-  }
+  if (event !== 'incoming_chat' && event !== 'incoming_event') {
+  console.log('Ignoring event:', event);
+  return res.status(200).send('Not interested event');
+}
 
   const chat = req.body.data.chat;
   if (!chat) {
