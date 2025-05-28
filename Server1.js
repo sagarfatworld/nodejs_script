@@ -11,7 +11,7 @@ app.use(bodyParser.json());
 // === CONFIGURATION ===
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
 const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3'; // Replace with your actual key
-const WEBHOOK_SECRET = 'K5t6MaUeIxBYpJOgdq1nuxp4vSBM2q6K'; // Replace with your LiveChat webhook secret
+const WEBHOOK_SECRET = 'itAok5sHoqc0LNdSgnBCMxeaHKKCr1t9'; // Replace with your LiveChat webhook secret
 const PORT = process.env.PORT || 3000;
 
 // Agent Q&A store: { agentId: [ { question, answer } ] }
