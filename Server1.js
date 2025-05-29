@@ -20,8 +20,11 @@ const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3';
 const WEBHOOK_SECRET = 'favtA04Ih2k3Iw4Dlav08faxm7Gn6bnz';
 const PORT = process.env.PORT || 3000;
 
-// Store conversations by chat ID
-const conversations = new Map();
+// Store messages for multiple chats
+let chatMessages = new Map();
+
+// Store conversation contexts
+const conversationContexts = new Map();
 
 // Helper to verify webhook signature
 function verifySignature(req) {
@@ -52,22 +55,27 @@ app.post('/livechat/webhook', async (req, res) => {
         console.log('Chat ID:', chatId);
         console.log('Visitor Message:', messageText);
 
-        // Initialize or get conversation for this chat
-        if (!conversations.has(chatId)) {
-            conversations.set(chatId, {
+        // Initialize chat messages array if it doesn't exist
+        if (!chatMessages.has(chatId)) {
+            chatMessages.set(chatId, []);
+        }
+
+        // Get or initialize conversation context
+        if (!conversationContexts.has(chatId)) {
+            conversationContexts.set(chatId, {
                 messages: [],
                 lastUpdate: Date.now()
             });
         }
 
-        const conversation = conversations.get(chatId);
+        const context = conversationContexts.get(chatId);
         
         // Add new message to context
-        conversation.messages.push(`Visitor: ${messageText}`);
-        conversation.lastUpdate = Date.now();
+        context.messages.push(`Visitor: ${messageText}`);
+        context.lastUpdate = Date.now();
 
         // Create full context string for Bot@Work
-        const fullContext = conversation.messages.join('\n');
+        const fullContext = context.messages.join('\n');
         console.log('Full Context being sent to Bot:', fullContext);
 
         // Prepare payload with full context
@@ -93,21 +101,19 @@ app.post('/livechat/webhook', async (req, res) => {
         const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
         console.log('Bot Response:', botAnswer);
 
-        // Add bot's response to conversation
-        conversation.messages.push(`Bot: ${botAnswer}`);
+        // Add bot's response to context
+        context.messages.push(`Bot: ${botAnswer}`);
 
-        // Store the latest QA pair for this chat
-        conversation.latestQA = {
+        // Store the Q&A pair for this chat
+        const messageData = {
             visitorMessage: messageText,
             botResponse: botAnswer,
             timestamp: new Date().toISOString()
         };
 
-        res.status(200).json({
-            success: true,
-            chatId: chatId,
-            latestQA: conversation.latestQA
-        });
+        chatMessages.get(chatId).push(messageData);
+
+        res.status(200).json(messageData);
 
     } catch (error) {
         console.error('Error processing message:', error);
@@ -115,76 +121,39 @@ app.post('/livechat/webhook', async (req, res) => {
     }
 });
 
-// Get list of active chats
-app.get('/active-chats', (req, res) => {
-    const activeChats = [];
-    conversations.forEach((value, chatId) => {
-        activeChats.push({
-            chatId,
-            lastUpdate: value.lastUpdate,
-            messageCount: Math.floor(value.messages.length / 2) // Divide by 2 since each QA is 2 messages
-        });
-    });
-    
-    // Sort by most recent
-    activeChats.sort((a, b) => b.lastUpdate - a.lastUpdate);
-    
-    res.json(activeChats);
+// GET endpoint to fetch all chat sessions
+app.get('/livechat/chats', (req, res) => {
+    const chats = Array.from(chatMessages.keys()).map(chatId => ({
+        chatId,
+        messages: chatMessages.get(chatId)
+    }));
+    res.json(chats);
 });
 
-// Get messages for specific chat
-app.get('/chat/:chatId/messages', (req, res) => {
+// GET endpoint to fetch messages for a specific chat
+app.get('/livechat/chat/:chatId', (req, res) => {
     const chatId = req.params.chatId;
-    const conversation = conversations.get(chatId);
-    
-    if (!conversation) {
-        return res.status(404).json({ error: 'Chat not found' });
-    }
-
-    // Convert messages array to QA pairs
-    const qaMessages = [];
-    for (let i = 0; i < conversation.messages.length; i += 2) {
-        if (conversation.messages[i] && conversation.messages[i + 1]) {
-            qaMessages.push({
-                visitorMessage: conversation.messages[i].replace('Visitor: ', ''),
-                botResponse: conversation.messages[i + 1].replace('Bot: ', ''),
-                timestamp: new Date(conversation.lastUpdate).toISOString()
-            });
-        }
-    }
-
-    res.json(qaMessages);
+    const messages = chatMessages.get(chatId) || [];
+    res.json(messages);
 });
 
-// Get latest message for a specific chat
-app.get('/chat/:chatId/latest', (req, res) => {
-    const chatId = req.params.chatId;
-    const conversation = conversations.get(chatId);
-    
-    if (!conversation || !conversation.latestQA) {
-        return res.status(404).json({ error: 'No messages found' });
-    }
-
-    res.json(conversation.latestQA);
-});
-
-// Cleanup old conversations (keep last 24 hours)
+// Cleanup old conversations every hour
 setInterval(() => {
-    const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
-    conversations.forEach((value, chatId) => {
-        if (value.lastUpdate < dayAgo) {
-            conversations.delete(chatId);
+    const oneHourAgo = Date.now() - (60 * 60 * 1000);
+    conversationContexts.forEach((context, chatId) => {
+        if (context.lastUpdate < oneHourAgo) {
+            conversationContexts.delete(chatId);
+            chatMessages.delete(chatId);
             console.log(`Cleaned up conversation for chat ID: ${chatId}`);
         }
     });
-}, 60 * 60 * 1000); // Check every hour
+}, 60 * 60 * 1000);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
 
-// Start server
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
