@@ -46,7 +46,7 @@ app.post('/livechat/webhook', async (req, res) => {
     try {
         const messageText = req.body.payload?.event?.text;
         const chatId = req.body.payload?.chat_id;
-        const agentId = req.body.payload?.agent_id;
+        const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
 
         if (!messageText || !chatId) {
             console.log('Missing message text or chat ID');
