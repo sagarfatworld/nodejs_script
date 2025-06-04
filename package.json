@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "Server1.js",
   "scripts": {
-    "start": "node Server1.js"
+    "start": "node Server1.js",
+    "dev": "nodemon Server1.js"
   },
   "dependencies": {
     "express": "^4.18.4",
@@ -11,7 +12,13 @@
     "axios": "^1.6.7",
     "cors": "^2.8.5",
     "mssql": "^9.1.1",
+    "express-session": "^1.17.3",
+    "cookie-parser": "^1.4.6",
+    "connect-mongo": "^5.1.0",
     "@livechat/agent-app-widget-sdk": "^1.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
   },
   "engines": {
     "node": "18.x"
