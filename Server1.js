@@ -16,12 +16,21 @@ app.use(session({
 }));
 
 app.use(cors({
-    origin: '*',
+    origin: [
+        'https://my.livechat.com',
+        'https://bot-assistant-panel.onrender.com',
+        /\.livechat\.com$/,
+        /\.livechatinc\.com$/
+    ],
     credentials: true,
     methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-livechat-signature']
+    allowedHeaders: [
+        'Content-Type', 
+        'Authorization', 
+        'x-livechat-signature',
+        'X-LiveChat-Signature'
+    ]
 }));
-
 app.use(bodyParser.json());
 
 // Configuration
