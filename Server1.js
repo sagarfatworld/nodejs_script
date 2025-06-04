@@ -3,109 +3,94 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const crypto = require('crypto');
 const cors = require('cors');
+const session = require('express-session');
+
 const app = express();
 
-// Enable CORS for all routes
+// Session configuration
+app.use(session({
+    secret: 'your-secret-key',
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false } // Set to true in production with HTTPS
+}));
+
 app.use(cors({
     origin: '*',
+    credentials: true,
     methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-livechat-signature', 'X-LiveChat-Signature']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-livechat-signature']
 }));
 
 app.use(bodyParser.json());
 
-// === CONFIGURATION ===
+// Configuration
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
 const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3';
 const WEBHOOK_SECRET = 'favtA04Ih2k3Iw4Dlav08faxm7Gn6bnz';
 const PORT = process.env.PORT || 3000;
 
-// Modified to store messages and agent information
+// Store messages and agent assignments
 let chatMessages = new Map();
+let agentSessions = new Map();
 
-// Store conversation contexts
-const conversationContexts = new Map();
+// Agent login endpoint
+app.post('/login', (req, res) => {
+    const { agentUserId, agentEmail } = req.body;
+    req.session.agentUserId = agentUserId;
+    agentSessions.set(agentUserId, {
+        email: agentEmail,
+        lastActive: Date.now()
+    });
+    console.log('Agent logged in:', agentUserId, agentEmail);
+    res.json({ success: true });
+});
 
-// Store agent-chat mappings
-const agentChatMappings = new Map();
-
-// Helper to verify webhook signature
-function verifySignature(req) {
-    const signature = req.get('X-LiveChat-Signature') || req.get('x-livechat-signature');
-    if (!signature) {
-        console.log('No signature header found');
-        return true;
+// Get current agent endpoint
+app.get('/current-agent', (req, res) => {
+    const agentId = req.session.agentUserId;
+    if (agentId && agentSessions.has(agentId)) {
+        res.json({
+            agentId: agentId,
+            email: agentSessions.get(agentId).email
+        });
+    } else {
+        res.status(401).json({ error: 'No agent logged in' });
     }
-    const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
-    hmac.update(JSON.stringify(req.body));
-    const digest = hmac.digest('hex');
-    return signature === digest;
-}
+});
 
-// Webhook POST endpoint
+// Webhook endpoint
 app.post('/livechat/webhook', async (req, res) => {
-    console.log('Webhook received, body:', JSON.stringify(req.body, null, 2));
+    console.log('Webhook received:', JSON.stringify(req.body, null, 2));
 
     try {
         const messageText = req.body.payload?.event?.text;
         const chatId = req.body.payload?.chat_id;
-        const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
+        const assignedAgentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@'));
 
         if (!messageText || !chatId) {
-            console.log('Missing message text or chat ID');
-            return res.status(200).send('Missing required data');
+            return res.status(400).json({ error: 'Missing required data' });
         }
 
-        console.log('Chat ID:', chatId);
-        console.log('Agent ID:', agentId);
-        console.log('Visitor Message:', messageText);
-
-        // Store agent-chat mapping
-        if (agentId) {
-            if (!agentChatMappings.has(agentId)) {
-                agentChatMappings.set(agentId, new Set());
-            }
-            agentChatMappings.get(agentId).add(chatId);
-        }
-
-        // Initialize chat messages array if it doesn't exist
+        // Store message with agent assignment
         if (!chatMessages.has(chatId)) {
             chatMessages.set(chatId, {
                 messages: [],
-                agentId: agentId
+                assignedAgentId: assignedAgentId
             });
         }
 
-        // Get or initialize conversation context
-        if (!conversationContexts.has(chatId)) {
-            conversationContexts.set(chatId, {
-                messages: [],
-                lastUpdate: Date.now()
-            });
-        }
-
-        const context = conversationContexts.get(chatId);
-        
-        // Add new message to context
-        context.messages.push(`Visitor: ${messageText}`);
-        context.lastUpdate = Date.now();
-
-        // Create full context string for Bot@Work
-        const fullContext = context.messages.join('\n');
-        console.log('Full Context being sent to Bot:', fullContext);
-
-        // Prepare payload with full context
+        // Process bot response
         const botPayload = {
             data: {
                 payload: {
                     override_model: 'sonar',
-                    clientQuestion: fullContext
+                    clientQuestion: messageText
                 }
             },
             should_stream: false
         };
 
-        // Call bot@work API
         const botResponse = await axios.post(BOT_API_URL, botPayload, {
             headers: {
                 'Content-Type': 'application/json',
@@ -113,97 +98,65 @@ app.post('/livechat/webhook', async (req, res) => {
             }
         });
 
-        // Extract bot's response
-        const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
-        console.log('Bot Response:', botAnswer);
+        const botAnswer = botResponse.data?.data?.content || 
+                         botResponse.data?.message || 
+                         "No answer from bot";
 
-        // Add bot's response to context
-        context.messages.push(`Bot: ${botAnswer}`);
-
-        // Store the Q&A pair for this chat
+        // Store message
         const messageData = {
             visitorMessage: messageText,
             botResponse: botAnswer,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            assignedAgentId: assignedAgentId
         };
 
         chatMessages.get(chatId).messages.push(messageData);
-
         res.status(200).json(messageData);
 
     } catch (error) {
-        console.error('Error processing message:', error);
-        res.status(500).send('Error processing message');
+        console.error('Error processing webhook:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Modified GET endpoint to fetch chats for specific agent
+// Get chats for specific agent
 app.get('/livechat/chats/:agentId', (req, res) => {
-    try {
-        const requestedAgentId = req.params.agentId;
-        console.log('Fetching chats for agent:', requestedAgentId);
+    const requestedAgentId = req.params.agentId;
+    const sessionAgentId = req.session.agentUserId;
 
-        // Get all chats for this agent
-        const agentChats = Array.from(chatMessages.entries())
-            .filter(([_, chatData]) => chatData.agentId === requestedAgentId)
-            .map(([chatId, chatData]) => ({
-                chatId,
-                messages: chatData.messages
-            }));
-
-        console.log(`Found ${agentChats.length} chats for agent ${requestedAgentId}`);
-        res.json(agentChats);
-    } catch (error) {
-        console.error('Error fetching agent chats:', error);
-        res.status(500).json({ error: 'Error fetching chats' });
+    // Verify agent session matches requested agent
+    if (requestedAgentId !== sessionAgentId) {
+        return res.status(403).json({ error: 'Unauthorized access' });
     }
+
+    const agentChats = Array.from(chatMessages.entries())
+        .filter(([_, chatData]) => chatData.assignedAgentId === requestedAgentId)
+        .map(([chatId, chatData]) => ({
+            chatId,
+            messages: chatData.messages
+        }));
+
+    res.json(agentChats);
 });
 
-// Modified GET endpoint to fetch messages for a specific chat
+// Get specific chat messages
 app.get('/livechat/chat/:chatId', (req, res) => {
-    try {
-        const chatId = req.params.chatId;
-        const chatData = chatMessages.get(chatId);
-        
-        if (!chatData) {
-            console.log(`No chat found for ID: ${chatId}`);
-            return res.json([]);
-        }
+    const chatId = req.params.chatId;
+    const sessionAgentId = req.session.agentUserId;
+    const chatData = chatMessages.get(chatId);
 
-        console.log(`Returning ${chatData.messages.length} messages for chat ${chatId}`);
-        res.json(chatData.messages);
-    } catch (error) {
-        console.error('Error fetching chat messages:', error);
-        res.status(500).json({ error: 'Error fetching chat messages' });
+    if (!chatData) {
+        return res.json([]);
     }
-});
 
-// Cleanup old conversations every hour
-setInterval(() => {
-    const oneHourAgo = Date.now() - (60 * 60 * 1000);
-    conversationContexts.forEach((context, chatId) => {
-        if (context.lastUpdate < oneHourAgo) {
-            conversationContexts.delete(chatId);
-            chatMessages.delete(chatId);
-            
-            // Clean up agent-chat mappings
-            agentChatMappings.forEach((chats, agentId) => {
-                chats.delete(chatId);
-                if (chats.size === 0) {
-                    agentChatMappings.delete(agentId);
-                }
-            });
-            
-            console.log(`Cleaned up conversation for chat ID: ${chatId}`);
-        }
-    });
-}, 60 * 60 * 1000);
+    // Verify agent has access to this chat
+    if (chatData.assignedAgentId !== sessionAgentId) {
+        return res.status(403).json({ error: 'Unauthorized access' });
+    }
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
+    res.json(chatData.messages);
 });
 
 app.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
