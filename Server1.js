@@ -20,11 +20,14 @@ const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3';
 const WEBHOOK_SECRET = 'favtA04Ih2k3Iw4Dlav08faxm7Gn6bnz';
 const PORT = process.env.PORT || 3000;
 
-// Store messages for multiple chats
+// Modified to store messages and agent information
 let chatMessages = new Map();
 
 // Store conversation contexts
 const conversationContexts = new Map();
+
+// Store agent-chat mappings
+const agentChatMappings = new Map();
 
 // Helper to verify webhook signature
 function verifySignature(req) {
@@ -46,6 +49,7 @@ app.post('/livechat/webhook', async (req, res) => {
     try {
         const messageText = req.body.payload?.event?.text;
         const chatId = req.body.payload?.chat_id;
+        const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
 
         if (!messageText || !chatId) {
             console.log('Missing message text or chat ID');
@@ -53,11 +57,23 @@ app.post('/livechat/webhook', async (req, res) => {
         }
 
         console.log('Chat ID:', chatId);
+        console.log('Agent ID:', agentId);
         console.log('Visitor Message:', messageText);
+
+        // Store agent-chat mapping
+        if (agentId) {
+            if (!agentChatMappings.has(agentId)) {
+                agentChatMappings.set(agentId, new Set());
+            }
+            agentChatMappings.get(agentId).add(chatId);
+        }
 
         // Initialize chat messages array if it doesn't exist
         if (!chatMessages.has(chatId)) {
-            chatMessages.set(chatId, []);
+            chatMessages.set(chatId, {
+                messages: [],
+                agentId: agentId
+            });
         }
 
         // Get or initialize conversation context
@@ -111,7 +127,7 @@ app.post('/livechat/webhook', async (req, res) => {
             timestamp: new Date().toISOString()
         };
 
-        chatMessages.get(chatId).push(messageData);
+        chatMessages.get(chatId).messages.push(messageData);
 
         res.status(200).json(messageData);
 
@@ -121,20 +137,45 @@ app.post('/livechat/webhook', async (req, res) => {
     }
 });
 
-// GET endpoint to fetch all chat sessions
-app.get('/livechat/chats', (req, res) => {
-    const chats = Array.from(chatMessages.keys()).map(chatId => ({
-        chatId,
-        messages: chatMessages.get(chatId)
-    }));
-    res.json(chats);
+// Modified GET endpoint to fetch chats for specific agent
+app.get('/livechat/chats/:agentId', (req, res) => {
+    try {
+        const requestedAgentId = req.params.agentId;
+        console.log('Fetching chats for agent:', requestedAgentId);
+
+        // Get all chats for this agent
+        const agentChats = Array.from(chatMessages.entries())
+            .filter(([_, chatData]) => chatData.agentId === requestedAgentId)
+            .map(([chatId, chatData]) => ({
+                chatId,
+                messages: chatData.messages
+            }));
+
+        console.log(`Found ${agentChats.length} chats for agent ${requestedAgentId}`);
+        res.json(agentChats);
+    } catch (error) {
+        console.error('Error fetching agent chats:', error);
+        res.status(500).json({ error: 'Error fetching chats' });
+    }
 });
 
-// GET endpoint to fetch messages for a specific chat
+// Modified GET endpoint to fetch messages for a specific chat
 app.get('/livechat/chat/:chatId', (req, res) => {
-    const chatId = req.params.chatId;
-    const messages = chatMessages.get(chatId) || [];
-    res.json(messages);
+    try {
+        const chatId = req.params.chatId;
+        const chatData = chatMessages.get(chatId);
+        
+        if (!chatData) {
+            console.log(`No chat found for ID: ${chatId}`);
+            return res.json([]);
+        }
+
+        console.log(`Returning ${chatData.messages.length} messages for chat ${chatId}`);
+        res.json(chatData.messages);
+    } catch (error) {
+        console.error('Error fetching chat messages:', error);
+        res.status(500).json({ error: 'Error fetching chat messages' });
+    }
 });
 
 // Cleanup old conversations every hour
@@ -144,6 +185,15 @@ setInterval(() => {
         if (context.lastUpdate < oneHourAgo) {
             conversationContexts.delete(chatId);
             chatMessages.delete(chatId);
+            
+            // Clean up agent-chat mappings
+            agentChatMappings.forEach((chats, agentId) => {
+                chats.delete(chatId);
+                if (chats.size === 0) {
+                    agentChatMappings.delete(agentId);
+                }
+            });
+            
             console.log(`Cleaned up conversation for chat ID: ${chatId}`);
         }
     });
