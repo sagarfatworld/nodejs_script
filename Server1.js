@@ -127,24 +127,16 @@ app.post('/livechat/webhook', async (req, res) => {
 });
 
 // Modified GET endpoint to fetch chats for specific agent
-
-
 app.get('/livechat/chats/:agentId', (req, res) => {
-    const requestedAgentId = req.params.agentId.trim().toLowerCase();
-
-    const uniqueChatIds = new Set();
-    const filtered = chatMessages.filter(chat => {
-        return (
-            chat.agentId &&
-            chat.agentId.trim().toLowerCase() === requestedAgentId &&
-            !uniqueChatIds.has(chat.chatId) &&
-            uniqueChatIds.add(chat.chatId)
-        );
-    });
-
-    res.json(filtered);
+    const requestedAgentId = req.params.agentId;
+    const agentChats = Array.from(chatMessages.entries())
+        .filter(([_, chatData]) => chatData.agentId === requestedAgentId)
+        .map(([chatId, chatData]) => ({
+            chatId,
+            messages: chatData.messages
+        }));
+    res.json(agentChats);
 });
-
 
 // Modified GET endpoint to fetch messages for a specific chat
 app.get('/livechat/chat/:chatId', (req, res) => {
