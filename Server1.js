@@ -88,7 +88,7 @@ app.post('/livechat/webhook', async (req, res) => {
             data: {
                 payload: {
                    // override_model: 'sonar',
-                    override_model: 'GPT 4',
+                    override_model: 'gpt-4',
                     clientQuestion: fullContext
                 }
             },
