@@ -39,6 +39,7 @@ app.post('/livechat/webhook', async (req, res) => {
     try {
         const messageText = req.body.payload?.event?.text;
         const chatId = req.body.payload?.chat_id;
+        const threadId = req.body.payload?.thread_id;
         const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
 
         if (!messageText || !chatId) {
@@ -47,6 +48,7 @@ app.post('/livechat/webhook', async (req, res) => {
         }
 
         console.log('Chat ID:', chatId);
+        console.log('Thread ID:', threadId);
         console.log('Agent ID:', agentId);
         console.log('Visitor Message:', messageText);
 
