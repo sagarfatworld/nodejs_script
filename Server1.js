@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 3000;
 let chatMessages = new Map();
 let processedThreadEvents = new Map();
 const conversationContexts = new Map();
-const processingLocks = new Map(); // Added for sequential locking
+const processingLocks = new Map();
 
 function verifySignature(req) {
     const signature = req.get('X-LiveChat-Signature') || req.get('x-livechat-signature');
@@ -56,7 +56,6 @@ app.post('/livechat/webhook', async (req, res) => {
         return res.status(200).send('Duplicate message');
     }
 
-    // Acquire lock: wait for previous processing to finish
     const prev = processingLocks.get(chatId) || Promise.resolve();
     let release;
     const lock = new Promise(resolve => (release = resolve));
@@ -66,10 +65,6 @@ app.post('/livechat/webhook', async (req, res) => {
         await prev;
 
         processedThreadEvents.get(chatId).add(eventKey);
-
-        console.log('Chat ID:', chatId);
-        console.log('Agent ID:', agentId);
-        console.log('Visitor Message:', messageText);
 
         if (!chatMessages.has(chatId)) {
             chatMessages.set(chatId, {
@@ -90,7 +85,13 @@ app.post('/livechat/webhook', async (req, res) => {
         context.lastUpdate = Date.now();
 
         const fullContext = context.messages.join('\n');
-        console.log('Full Context being sent to Bot:', fullContext);
+
+        // ✅ UPDATED LOGGING
+        console.log('-----------------------------');
+        console.log('Chat ID:', chatId);
+        console.log('Agent ID:', agentId);
+        console.log('Visitor Message:', messageText);
+        console.log('Full Context being sent to Bot:\n' + fullContext);
 
         const botPayload = {
             data: {
@@ -110,9 +111,11 @@ app.post('/livechat/webhook', async (req, res) => {
         });
 
         const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
-        console.log('Bot Response:', botAnswer);
 
         context.messages.push(`Bot: ${botAnswer}`);
+
+        // ✅ Move bot response log here
+        console.log('Bot Response:', botAnswer);
 
         const messageData = {
             visitorMessage: messageText,
@@ -127,7 +130,7 @@ app.post('/livechat/webhook', async (req, res) => {
         console.error('Error processing message:', error);
         res.status(500).send('Error processing message');
     } finally {
-        release(); // release the lock
+        release();
     }
 });
 
@@ -155,7 +158,7 @@ setInterval(() => {
             conversationContexts.delete(chatId);
             chatMessages.delete(chatId);
             processedThreadEvents.delete(chatId);
-            processingLocks.delete(chatId); // Clean up lock too
+            processingLocks.delete(chatId);
             console.log(`Cleaned up conversation for chat ID: ${chatId}`);
         }
     });
