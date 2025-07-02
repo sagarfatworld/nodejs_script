@@ -40,7 +40,7 @@ function verifySignature(req) {
 }
 
 app.post('/livechat/webhook', async (req, res) => {
-    console.log('Webhook received, body:', JSON.stringify(req.body, null, 2));
+    
 
     try {
         const messageText = req.body.payload?.event?.text;
@@ -60,7 +60,7 @@ app.post('/livechat/webhook', async (req, res) => {
         }
 
         if (processedThreadEvents.get(chatId).has(eventKey)) {
-            console.log(`Duplicate message detected for thread ${threadId}, event ${eventId}`);
+            
             return res.status(200).send('Duplicate message');
         }
 
