@@ -67,10 +67,6 @@ app.post('/livechat/webhook', async (req, res) => {
 
         processedThreadEvents.get(chatId).add(eventKey);
 
-        console.log('Chat ID:', chatId);
-        console.log('Agent ID:', agentId);
-        console.log('Visitor Message:', messageText);
-
         if (!chatMessages.has(chatId)) {
             chatMessages.set(chatId, {
                 messages: [],
@@ -90,7 +86,6 @@ app.post('/livechat/webhook', async (req, res) => {
         context.lastUpdate = Date.now();
 
         const fullContext = context.messages.join('\n');
-        console.log('Full Context being sent to Bot:', fullContext);
 
         const botPayload = {
             data: {
@@ -110,8 +105,6 @@ app.post('/livechat/webhook', async (req, res) => {
         });
 
         const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
-        console.log('Bot Response:', botAnswer);
-
         context.messages.push(`Bot: ${botAnswer}`);
 
         const messageData = {
@@ -121,6 +114,13 @@ app.post('/livechat/webhook', async (req, res) => {
         };
 
         chatMessages.get(chatId).messages.push(messageData);
+
+        // ✅ ✅ ✅ FINAL LOGGING MOVED HERE AFTER BOT RESPONSE
+        console.log('-----------------------------');
+        console.log('Chat ID:', chatId);
+        console.log('Agent ID:', agentId);
+        console.log('Visitor Message:', messageText);
+        console.log('Bot Response:', botAnswer);
 
         res.status(200).json(messageData);
     } catch (error) {
@@ -155,7 +155,7 @@ setInterval(() => {
             conversationContexts.delete(chatId);
             chatMessages.delete(chatId);
             processedThreadEvents.delete(chatId);
-            processingLocks.delete(chatId); // Clean up lock too
+            processingLocks.delete(chatId);
             console.log(`Cleaned up conversation for chat ID: ${chatId}`);
         }
     });
