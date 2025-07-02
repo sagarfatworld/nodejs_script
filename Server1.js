@@ -19,11 +19,9 @@ const WEBHOOK_SECRET = 'fSzbKfowu5bfNBb6rGRFCjoK6DDDZtS3';
 const PORT = process.env.PORT || 3000;
 
 let chatMessages = new Map();
-
+let processedThreadEvents = new Map();
 const conversationContexts = new Map();
-
-//coments
-
+const processingLocks = new Map(); // Added for sequential locking
 
 function verifySignature(req) {
     const signature = req.get('X-LiveChat-Signature') || req.get('x-livechat-signature');
@@ -38,23 +36,37 @@ function verifySignature(req) {
 }
 
 app.post('/livechat/webhook', async (req, res) => {
-    console.log('Webhook received, body:', JSON.stringify(req.body, null, 2));
+    const messageText = req.body.payload?.event?.text;
+    const chatId = req.body.payload?.chat_id;
+    const threadId = req.body.payload?.thread_id;
+    const eventId = req.body.payload?.event?.id;
+    const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
+
+    if (!messageText || !chatId || !threadId || !eventId) {
+        console.log('Missing required data');
+        return res.status(200).send('Missing required data');
+    }
+
+    const eventKey = `${threadId}_${eventId}`;
+    if (!processedThreadEvents.has(chatId)) {
+        processedThreadEvents.set(chatId, new Set());
+    }
+
+    if (processedThreadEvents.get(chatId).has(eventKey)) {
+        return res.status(200).send('Duplicate message');
+    }
+
+    // Acquire lock: wait for previous processing to finish
+    const prev = processingLocks.get(chatId) || Promise.resolve();
+    let release;
+    const lock = new Promise(resolve => (release = resolve));
+    processingLocks.set(chatId, prev.then(() => lock));
 
     try {
-        const messageText = req.body.payload?.event?.text;
-        const chatId = req.body.payload?.chat_id;
-        const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
+        await prev;
 
-        if (!messageText || !chatId) {
-            console.log('Missing message text or chat ID');
-            return res.status(200).send('Missing required data');
-        }
+        processedThreadEvents.get(chatId).add(eventKey);
 
-        console.log('Chat ID:', chatId);
-        console.log('Agent ID:', agentId);
-        console.log('Visitor Message:', messageText);
-
-       
         if (!chatMessages.has(chatId)) {
             chatMessages.set(chatId, {
                 messages: [],
@@ -62,7 +74,6 @@ app.post('/livechat/webhook', async (req, res) => {
             });
         }
 
-        
         if (!conversationContexts.has(chatId)) {
             conversationContexts.set(chatId, {
                 messages: [],
@@ -71,20 +82,20 @@ app.post('/livechat/webhook', async (req, res) => {
         }
 
         const context = conversationContexts.get(chatId);
-        
-        
         context.messages.push(`Visitor: ${messageText}`);
         context.lastUpdate = Date.now();
 
-        
         const fullContext = context.messages.join('\n');
-        console.log('Full Context being sent to Bot:', fullContext);
 
-        
+        // ✅ Print basic info before waiting for the bot
+        console.log('-----------------------------');
+        console.log('Chat ID:', chatId);
+        console.log('Agent ID:', agentId);
+        console.log('Visitor Message:', messageText);
+
         const botPayload = {
             data: {
                 payload: {
-                   // override_model: 'sonar',
                     override_model: 'sonar',
                     clientQuestion: fullContext
                 }
@@ -92,7 +103,6 @@ app.post('/livechat/webhook', async (req, res) => {
             should_stream: false
         };
 
-        
         const botResponse = await axios.post(BOT_API_URL, botPayload, {
             headers: {
                 'Content-Type': 'application/json',
@@ -100,14 +110,10 @@ app.post('/livechat/webhook', async (req, res) => {
             }
         });
 
-        
         const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
-        console.log('Bot Response:', botAnswer);
 
-        
         context.messages.push(`Bot: ${botAnswer}`);
 
-        
         const messageData = {
             visitorMessage: messageText,
             botResponse: botAnswer,
@@ -116,14 +122,17 @@ app.post('/livechat/webhook', async (req, res) => {
 
         chatMessages.get(chatId).messages.push(messageData);
 
-        res.status(200).json(messageData);
+        // ✅ Only now print the bot's response
+        console.log('Bot Response:', botAnswer);
 
+        res.status(200).json(messageData);
     } catch (error) {
         console.error('Error processing message:', error);
         res.status(500).send('Error processing message');
+    } finally {
+        release(); // release the lock
     }
 });
-
 
 app.get('/livechat/chats/:agentId', (req, res) => {
     const requestedAgentId = req.params.agentId;
@@ -136,13 +145,11 @@ app.get('/livechat/chats/:agentId', (req, res) => {
     res.json(agentChats);
 });
 
-
 app.get('/livechat/chat/:chatId', (req, res) => {
     const chatId = req.params.chatId;
     const chatData = chatMessages.get(chatId);
     res.json(chatData ? chatData.messages : []);
 });
-
 
 setInterval(() => {
     const oneHourAgo = Date.now() - (60 * 60 * 1000);
@@ -150,14 +157,17 @@ setInterval(() => {
         if (context.lastUpdate < oneHourAgo) {
             conversationContexts.delete(chatId);
             chatMessages.delete(chatId);
+            processedThreadEvents.delete(chatId);
+            processingLocks.delete(chatId);
             console.log(`Cleaned up conversation for chat ID: ${chatId}`);
         }
     });
 }, 60 * 60 * 1000);
 
 app.get("/test", (req, res) => {
-     res.send("This is a test get API");
+    res.send("This is a test get API");
 });
+
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
