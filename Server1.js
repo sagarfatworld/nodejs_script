@@ -35,103 +35,108 @@ function verifySignature(req) {
     return signature === digest;
 }
 
-app.post('/livechat/webhook', async (req, res) => {
-    const messageText = req.body.payload?.event?.text;
-    const chatId = req.body.payload?.chat_id;
-    const threadId = req.body.payload?.thread_id;
-    const eventId = req.body.payload?.event?.id;
-    const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
+// ✅ Updated webhook: respond immediately, process later
+app.post('/livechat/webhook', (req, res) => {
+    // ✅ Always respond immediately — prevents LiveChat from retrying or dropping
+    res.status(200).send('OK');
 
-    if (!messageText || !chatId || !threadId || !eventId) {
-        console.log('Missing required data');
-        return res.status(200).send('Missing required data');
-    }
+    // 🔁 Do all processing in background
+    (async () => {
+        const messageText = req.body.payload?.event?.text;
+        const chatId = req.body.payload?.chat_id;
+        const threadId = req.body.payload?.thread_id;
+        const eventId = req.body.payload?.event?.id;
+        const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
 
-    const eventKey = `${threadId}_${eventId}`;
-    if (!processedThreadEvents.has(chatId)) {
-        processedThreadEvents.set(chatId, new Set());
-    }
-
-    if (processedThreadEvents.get(chatId).has(eventKey)) {
-        return res.status(200).send('Duplicate message');
-    }
-
-    // Acquire lock: wait for previous processing to finish
-    const prev = processingLocks.get(chatId) || Promise.resolve();
-    let release;
-    const lock = new Promise(resolve => (release = resolve));
-    processingLocks.set(chatId, prev.then(() => lock));
-
-    try {
-        await prev;
-
-        processedThreadEvents.get(chatId).add(eventKey);
-
-        if (!chatMessages.has(chatId)) {
-            chatMessages.set(chatId, {
-                messages: [],
-                agentId: agentId
-            });
+        if (!messageText || !chatId || !threadId || !eventId) {
+            console.log('Missing required data');
+            return;
         }
 
-        if (!conversationContexts.has(chatId)) {
-            conversationContexts.set(chatId, {
-                messages: [],
-                lastUpdate: Date.now()
-            });
+        const eventKey = `${threadId}_${eventId}`;
+        if (!processedThreadEvents.has(chatId)) {
+            processedThreadEvents.set(chatId, new Set());
         }
 
-        const context = conversationContexts.get(chatId);
-        context.messages.push(`Visitor: ${messageText}`);
-        context.lastUpdate = Date.now();
+        if (processedThreadEvents.get(chatId).has(eventKey)) {
+            console.log('Duplicate message skipped');
+            return;
+        }
 
-        const fullContext = context.messages.join('\n');
+        // Acquire lock: wait for previous processing to finish
+        const prev = processingLocks.get(chatId) || Promise.resolve();
+        let release;
+        const lock = new Promise(resolve => (release = resolve));
+        processingLocks.set(chatId, prev.then(() => lock));
 
-        // ✅ Print basic info before waiting for the bot
-        console.log('-----------------------------');
-        console.log('Chat ID:', chatId);
-        console.log('Agent ID:', agentId);
-        console.log('Visitor Message:', messageText);
+        try {
+            await prev;
 
-        const botPayload = {
-            data: {
-                payload: {
-                    override_model: 'sonar',
-                    clientQuestion: fullContext
-                }
-            },
-            should_stream: false
-        };
+            processedThreadEvents.get(chatId).add(eventKey);
 
-        const botResponse = await axios.post(BOT_API_URL, botPayload, {
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': BOT_API_KEY
+            if (!chatMessages.has(chatId)) {
+                chatMessages.set(chatId, {
+                    messages: [],
+                    agentId: agentId
+                });
             }
-        });
 
-        const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
+            if (!conversationContexts.has(chatId)) {
+                conversationContexts.set(chatId, {
+                    messages: [],
+                    lastUpdate: Date.now()
+                });
+            }
 
-        context.messages.push(`Bot: ${botAnswer}`);
+            const context = conversationContexts.get(chatId);
+            context.messages.push(`Visitor: ${messageText}`);
+            context.lastUpdate = Date.now();
 
-        const messageData = {
-            visitorMessage: messageText,
-            botResponse: botAnswer,
-            timestamp: new Date().toISOString()
-        };
+            const fullContext = context.messages.join('\n');
 
-        chatMessages.get(chatId).messages.push(messageData);
+            // ✅ Print basic info before waiting for the bot
+            console.log('-----------------------------');
+            console.log('Chat ID:', chatId);
+            console.log('Agent ID:', agentId);
+            console.log('Visitor Message:', messageText);
 
-        // ✅ Only now print the bot's response
-        console.log('Bot Response:', botAnswer);
+            const botPayload = {
+                data: {
+                    payload: {
+                        override_model: 'sonar',
+                        clientQuestion: fullContext
+                    }
+                },
+                should_stream: false
+            };
 
-        res.status(200).json(messageData);
-    } catch (error) {
-        console.error('Error processing message:', error);
-        res.status(500).send('Error processing message');
-    } finally {
-        release(); // release the lock
-    }
+            const botResponse = await axios.post(BOT_API_URL, botPayload, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': BOT_API_KEY
+                }
+            });
+
+            const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
+
+            context.messages.push(`Bot: ${botAnswer}`);
+
+            const messageData = {
+                visitorMessage: messageText,
+                botResponse: botAnswer,
+                timestamp: new Date().toISOString()
+            };
+
+            chatMessages.get(chatId).messages.push(messageData);
+
+            // ✅ Only now print the bot's response
+            console.log('Bot Response:', botAnswer);
+        } catch (error) {
+            console.error('Error processing message:', error);
+        } finally {
+            release(); // release the lock
+        }
+    })();
 });
 
 app.get('/livechat/chats/:agentId', (req, res) => {
