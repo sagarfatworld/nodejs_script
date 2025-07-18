@@ -35,12 +35,11 @@ function verifySignature(req) {
     return signature === digest;
 }
 
-// ✅ Updated webhook: respond immediately, process later
 app.post('/livechat/webhook', (req, res) => {
-    // ✅ Always respond immediately — prevents LiveChat from retrying or dropping
+    
     res.status(200).send('OK');
 
-    // 🔁 Do all processing in background
+    
     (async () => {
         const messageText = req.body.payload?.event?.text;
         const chatId = req.body.payload?.chat_id;
@@ -94,7 +93,7 @@ app.post('/livechat/webhook', (req, res) => {
 
             const fullContext = context.messages.join('\n');
 
-            // ✅ Print basic info before waiting for the bot
+            
             console.log('-----------------------------');
             console.log('Chat ID:', chatId);
             console.log('Agent ID:', agentId);
