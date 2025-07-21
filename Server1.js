@@ -36,10 +36,8 @@ function verifySignature(req) {
 }
 
 app.post('/livechat/webhook', (req, res) => {
-    
     res.status(200).send('OK');
 
-    
     (async () => {
         const messageText = req.body.payload?.event?.text;
         const chatId = req.body.payload?.chat_id;
@@ -52,7 +50,7 @@ app.post('/livechat/webhook', (req, res) => {
             return;
         }
 
-        const eventKey = ${threadId}_${eventId};
+        const eventKey = `${threadId}_${eventId}`;
         if (!processedThreadEvents.has(chatId)) {
             processedThreadEvents.set(chatId, new Set());
         }
@@ -62,7 +60,6 @@ app.post('/livechat/webhook', (req, res) => {
             return;
         }
 
-        // Acquire lock: wait for previous processing to finish
         const prev = processingLocks.get(chatId) || Promise.resolve();
         let release;
         const lock = new Promise(resolve => (release = resolve));
@@ -88,12 +85,11 @@ app.post('/livechat/webhook', (req, res) => {
             }
 
             const context = conversationContexts.get(chatId);
-            context.messages.push(Visitor: ${messageText});
+            context.messages.push(`Visitor: ${messageText}`);
             context.lastUpdate = Date.now();
 
             const fullContext = context.messages.join('\n');
 
-            
             console.log('-----------------------------');
             console.log('Chat ID:', chatId);
             console.log('Agent ID:', agentId);
@@ -109,16 +105,34 @@ app.post('/livechat/webhook', (req, res) => {
                 should_stream: false
             };
 
-            const botResponse = await axios.post(BOT_API_URL, botPayload, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': BOT_API_KEY
+            // ✅ Retry logic added here
+            let botAnswer = "No answer from bot";
+            let retryCount = 0;
+            const maxRetries = 3;
+
+            while (retryCount < maxRetries) {
+                try {
+                    const botResponse = await axios.post(BOT_API_URL, botPayload, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': BOT_API_KEY
+                        }
+                    });
+
+                    botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
+                    break;
+                } catch (err) {
+                    retryCount++;
+                    console.error(`Bot API call failed (attempt ${retryCount}):`, err.message);
+                    if (retryCount < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    } else {
+                        console.error('Bot generation failed after maximum retries.');
+                    }
                 }
-            });
+            }
 
-            const botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
-
-            context.messages.push(Bot: ${botAnswer});
+            context.messages.push(`Bot: ${botAnswer}`);
 
             const messageData = {
                 visitorMessage: messageText,
@@ -128,7 +142,6 @@ app.post('/livechat/webhook', (req, res) => {
 
             chatMessages.get(chatId).messages.push(messageData);
 
-            // ✅ Only now print the bot's response
             console.log('Bot Response:', botAnswer);
         } catch (error) {
             console.error('Error processing message:', error);
@@ -163,7 +176,7 @@ setInterval(() => {
             chatMessages.delete(chatId);
             processedThreadEvents.delete(chatId);
             processingLocks.delete(chatId);
-            console.log(Cleaned up conversation for chat ID: ${chatId});
+            console.log(`Cleaned up conversation for chat ID: ${chatId}`);
         }
     });
 }, 60 * 60 * 1000);
@@ -177,5 +190,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(Server listening on port ${PORT});
+    console.log(`Server listening on port ${PORT}`);
 });
