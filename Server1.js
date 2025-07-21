@@ -50,6 +50,12 @@ app.post('/livechat/webhook', (req, res) => {
             return;
         }
 
+        // ✅ Moved up: Print immediately after receiving visitor message
+        console.log('-----------------------------');
+        console.log('Chat ID:', chatId);
+        console.log('Agent ID:', agentId);
+        console.log('Visitor Message:', messageText);
+
         const eventKey = `${threadId}_${eventId}`;
         if (!processedThreadEvents.has(chatId)) {
             processedThreadEvents.set(chatId, new Set());
@@ -88,20 +94,7 @@ app.post('/livechat/webhook', (req, res) => {
             context.messages.push(`Visitor: ${messageText}`);
             context.lastUpdate = Date.now();
 
-            // ✅ Store placeholder message immediately
-            const placeholderMessage = {
-                visitorMessage: messageText,
-                botResponse: "Thinking... 🤔",
-                timestamp: new Date().toISOString()
-            };
-            chatMessages.get(chatId).messages.push(placeholderMessage);
-
             const fullContext = context.messages.join('\n');
-
-            console.log('-----------------------------');
-            console.log('Chat ID:', chatId);
-            console.log('Agent ID:', agentId);
-            console.log('Visitor Message:', messageText);
 
             const botPayload = {
                 data: {
@@ -113,6 +106,7 @@ app.post('/livechat/webhook', (req, res) => {
                 should_stream: false
             };
 
+            // ✅ Retry logic added here
             let botAnswer = "No answer from bot";
             let retryCount = 0;
             const maxRetries = 3;
@@ -141,13 +135,13 @@ app.post('/livechat/webhook', (req, res) => {
 
             context.messages.push(`Bot: ${botAnswer}`);
 
-            // ✅ Update placeholder message with actual bot response
-            const messages = chatMessages.get(chatId).messages;
-            const lastMessage = messages[messages.length - 1];
-            if (lastMessage && lastMessage.visitorMessage === messageText) {
-                lastMessage.botResponse = botAnswer;
-                lastMessage.timestamp = new Date().toISOString();
-            }
+            const messageData = {
+                visitorMessage: messageText,
+                botResponse: botAnswer,
+                timestamp: new Date().toISOString()
+            };
+
+            chatMessages.get(chatId).messages.push(messageData);
 
             console.log('Bot Response:', botAnswer);
         } catch (error) {
