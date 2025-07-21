@@ -88,6 +88,14 @@ app.post('/livechat/webhook', (req, res) => {
             context.messages.push(`Visitor: ${messageText}`);
             context.lastUpdate = Date.now();
 
+            // ✅ Store placeholder message immediately
+            const placeholderMessage = {
+                visitorMessage: messageText,
+                botResponse: "Thinking... 🤔",
+                timestamp: new Date().toISOString()
+            };
+            chatMessages.get(chatId).messages.push(placeholderMessage);
+
             const fullContext = context.messages.join('\n');
 
             console.log('-----------------------------');
@@ -105,7 +113,6 @@ app.post('/livechat/webhook', (req, res) => {
                 should_stream: false
             };
 
-            // ✅ Retry logic added here
             let botAnswer = "No answer from bot";
             let retryCount = 0;
             const maxRetries = 3;
@@ -134,13 +141,13 @@ app.post('/livechat/webhook', (req, res) => {
 
             context.messages.push(`Bot: ${botAnswer}`);
 
-            const messageData = {
-                visitorMessage: messageText,
-                botResponse: botAnswer,
-                timestamp: new Date().toISOString()
-            };
-
-            chatMessages.get(chatId).messages.push(messageData);
+            // ✅ Update placeholder message with actual bot response
+            const messages = chatMessages.get(chatId).messages;
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage && lastMessage.visitorMessage === messageText) {
+                lastMessage.botResponse = botAnswer;
+                lastMessage.timestamp = new Date().toISOString();
+            }
 
             console.log('Bot Response:', botAnswer);
         } catch (error) {
