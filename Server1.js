@@ -15,7 +15,7 @@ app.use(bodyParser.json());
 
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
 const BOT_API_KEYS = [
-    'bf2e2d7e409bc0d7545e14ae15a773a3',
+    'da672db4f8371a2fdc14ed08c864f193',
     'your-fallback-api-key-1',
     'your-fallback-api-key-2'
 ];
