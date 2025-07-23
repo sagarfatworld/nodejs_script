@@ -14,18 +14,14 @@ app.use(cors({
 app.use(bodyParser.json());
 
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
-const BOT_API_KEYS = [
-    'da672db4f8371a2fdc14ed08c864f193',
-    'your-fallback-api-key-1',
-    'your-fallback-api-key-2'
-];
+const BOT_API_KEY = 'bf2e2d7e409bc0d7545e14ae15a773a3';
 const WEBHOOK_SECRET = 'fSzbKfowu5bfNBb6rGRFCjoK6DDDZtS3';
 const PORT = process.env.PORT || 3000;
 
 let chatMessages = new Map();
 let processedThreadEvents = new Map();
 const conversationContexts = new Map();
-const processingLocks = new Map();
+const processingLocks = new Map(); // Added for sequential locking
 
 function verifySignature(req) {
     const signature = req.get('X-LiveChat-Signature') || req.get('x-livechat-signature');
@@ -54,6 +50,7 @@ app.post('/livechat/webhook', (req, res) => {
             return;
         }
 
+        
         console.log('-----------------------------');
         console.log('Chat ID:', chatId);
         console.log('Agent ID:', agentId);
@@ -93,14 +90,6 @@ app.post('/livechat/webhook', (req, res) => {
                 });
             }
 
-            // [ADDED HERE] — immediately show visitor message before bot response
-            const visitorMessageData = {
-                visitorMessage: messageText,
-                botResponse: null,
-                timestamp: new Date().toISOString()
-            };
-            chatMessages.get(chatId).messages.push(visitorMessageData);
-
             const context = conversationContexts.get(chatId);
             context.messages.push(`Visitor: ${messageText}`);
             context.lastUpdate = Date.now();
@@ -117,37 +106,31 @@ app.post('/livechat/webhook', (req, res) => {
                 should_stream: false
             };
 
+            
             let botAnswer = "No answer from bot";
             let retryCount = 0;
             const maxRetries = 3;
-            let keyIndex = 0;
 
-            while (keyIndex < BOT_API_KEYS.length) {
-                let success = false;
-                while (retryCount < maxRetries) {
-                    try {
-                        const botResponse = await axios.post(BOT_API_URL, botPayload, {
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'x-api-key': BOT_API_KEYS[keyIndex]
-                            }
-                        });
-
-                        botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
-                        success = true;
-                        break;
-                    } catch (err) {
-                        retryCount++;
-                        console.error(`Bot API call failed (attempt ${retryCount}, key ${keyIndex + 1}):`, err.message);
-                        if (retryCount < maxRetries) {
-                            await new Promise(resolve => setTimeout(resolve, 1000));
+            while (retryCount < maxRetries) {
+                try {
+                    const botResponse = await axios.post(BOT_API_URL, botPayload, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': BOT_API_KEY
                         }
+                    });
+
+                    botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
+                    break;
+                } catch (err) {
+                    retryCount++;
+                    console.error(`Bot API call failed (attempt ${retryCount}):`, err.message);
+                    if (retryCount < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    } else {
+                        console.error('Bot generation failed after maximum retries.');
                     }
                 }
-
-                if (success) break;
-                keyIndex++;
-                retryCount = 0;
             }
 
             context.messages.push(`Bot: ${botAnswer}`);
@@ -164,7 +147,7 @@ app.post('/livechat/webhook', (req, res) => {
         } catch (error) {
             console.error('Error processing message:', error);
         } finally {
-            release();
+            release(); // release the lock
         }
     })();
 });
