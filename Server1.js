@@ -14,7 +14,7 @@ app.use(cors({
 app.use(bodyParser.json());
 
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
-const BOT_API_KEY = 'da672db4f8371a2fdc14ed08c864f193';
+const BOT_API_KEY = 'ead5bd1e5c1d5caaabab4a659012fe4e';
 const WEBHOOK_SECRET = 'fSzbKfowu5bfNBb6rGRFCjoK6DDDZtS3';
 const PORT = process.env.PORT || 3000;
 
