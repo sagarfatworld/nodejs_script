@@ -14,14 +14,17 @@ app.use(cors({
 app.use(bodyParser.json());
 
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
-const BOT_API_KEY = 'ead5bd1e5c1d5caaabab4a659012fe4e';
+const BOT_API_KEYS = [
+    'bf2e2d7e409bc0d7545e14ae15a773a3',
+    'ead5bd1e5c1d5caaabab4a659012fe4e'
+];
 const WEBHOOK_SECRET = 'fSzbKfowu5bfNBb6rGRFCjoK6DDDZtS3';
 const PORT = process.env.PORT || 3000;
 
 let chatMessages = new Map();
 let processedThreadEvents = new Map();
 const conversationContexts = new Map();
-const processingLocks = new Map(); // Added for sequential locking
+const processingLocks = new Map();
 
 function verifySignature(req) {
     const signature = req.get('X-LiveChat-Signature') || req.get('x-livechat-signature');
@@ -50,7 +53,6 @@ app.post('/livechat/webhook', (req, res) => {
             return;
         }
 
-        
         console.log('-----------------------------');
         console.log('Chat ID:', chatId);
         console.log('Agent ID:', agentId);
@@ -79,8 +81,12 @@ app.post('/livechat/webhook', (req, res) => {
             if (!chatMessages.has(chatId)) {
                 chatMessages.set(chatId, {
                     messages: [],
-                    agentId: agentId
+                    agentIds: new Set()
                 });
+            }
+
+            if (agentId) {
+                chatMessages.get(chatId).agentIds.add(agentId);
             }
 
             if (!conversationContexts.has(chatId)) {
@@ -89,6 +95,13 @@ app.post('/livechat/webhook', (req, res) => {
                     lastUpdate: Date.now()
                 });
             }
+
+            const visitorMessageData = {
+                visitorMessage: messageText,
+                botResponse: null,
+                timestamp: new Date().toISOString()
+            };
+            chatMessages.get(chatId).messages.push(visitorMessageData);
 
             const context = conversationContexts.get(chatId);
             context.messages.push(`Visitor: ${messageText}`);
@@ -106,31 +119,48 @@ app.post('/livechat/webhook', (req, res) => {
                 should_stream: false
             };
 
-            
             let botAnswer = "No answer from bot";
             let retryCount = 0;
             const maxRetries = 3;
+            let keyIndex = 0;
 
-            while (retryCount < maxRetries) {
-                try {
-                    const botResponse = await axios.post(BOT_API_URL, botPayload, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'x-api-key': BOT_API_KEY
+            while (keyIndex < BOT_API_KEYS.length) {
+                let success = false;
+                while (retryCount < maxRetries) {
+                    try {
+                        const botResponse = await axios.post(BOT_API_URL, botPayload, {
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-api-key': BOT_API_KEYS[keyIndex]
+                            }
+                        });
+
+                        botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
+                        success = true;
+                        break;
+                    } catch (err) {
+                        retryCount++;
+                        const status = err.response?.status;
+                        const statusText = err.response?.statusText;
+
+                        if (retryCount === maxRetries) {
+                            if (status) {
+                                botAnswer = `No answer from bot. Status: ${status} ${statusText || ''}`.trim();
+                            } else {
+                                botAnswer = `No answer from bot.`;
+                            }
                         }
-                    });
 
-                    botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
-                    break;
-                } catch (err) {
-                    retryCount++;
-                    console.error(`Bot API call failed (attempt ${retryCount}):`, err.message);
-                    if (retryCount < maxRetries) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                    } else {
-                        console.error('Bot generation failed after maximum retries.');
+                        console.error(`Bot API call failed (attempt ${retryCount}, key ${keyIndex + 1}):`, err.message);
+                        if (retryCount < maxRetries) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
                     }
                 }
+
+                if (botAnswer !== "No answer from bot" && !botAnswer.startsWith("No answer from bot.")) break;
+                keyIndex++;
+                retryCount = 0;
             }
 
             context.messages.push(`Bot: ${botAnswer}`);
@@ -147,7 +177,7 @@ app.post('/livechat/webhook', (req, res) => {
         } catch (error) {
             console.error('Error processing message:', error);
         } finally {
-            release(); // release the lock
+            release();
         }
     })();
 });
@@ -155,7 +185,7 @@ app.post('/livechat/webhook', (req, res) => {
 app.get('/livechat/chats/:agentId', (req, res) => {
     const requestedAgentId = req.params.agentId;
     const agentChats = Array.from(chatMessages.entries())
-        .filter(([_, chatData]) => chatData.agentId === requestedAgentId)
+        .filter(([_, chatData]) => chatData.agentIds?.has(requestedAgentId))
         .map(([chatId, chatData]) => ({
             chatId,
             messages: chatData.messages
