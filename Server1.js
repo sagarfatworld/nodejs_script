@@ -15,8 +15,8 @@ app.use(bodyParser.json());
 
 const BOT_API_URL = 'https://api.botatwork.com/trigger-task/42eaa2c8-e8aa-43ad-b9b5-944981bce2a2';
 const BOT_API_KEYS = [
-    'bf2e2d7e409bc0d7545e14ae15a773a3',
-    'ead5bd1e5c1d5caaabab4a659012fe4e'
+    'bf2e2d7e409bc0d7545e14ae15a773abvd',
+    'ead5bd1e5c1d5caaabab4a659012fe4dv'
 ];
 const WEBHOOK_SECRET = 'fSzbKfowu5bfNBb6rGRFCjoK6DDDZtS3';
 const PORT = process.env.PORT || 3000;
@@ -120,7 +120,7 @@ app.post('/livechat/webhook', (req, res) => {
                 should_stream: false
             };
 
-            let botAnswer = "No answer from bot";
+            let botAnswer = "☹️ No answer from bot";
             let retryCount = 0;
             const maxRetries = 3;
             let keyIndex = 0;
@@ -136,7 +136,7 @@ app.post('/livechat/webhook', (req, res) => {
                             }
                         });
 
-                        botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "No answer from bot";
+                        botAnswer = botResponse.data?.data?.content || botResponse.data?.message || "☹️ No answer from bot";
                         success = true;
                         break;
                     } catch (err) {
@@ -159,7 +159,7 @@ app.post('/livechat/webhook', (req, res) => {
                     }
                 }
 
-                if (botAnswer !== "No answer from bot" && !botAnswer.startsWith("No answer from bot.")) break;
+                if (success) break;
                 keyIndex++;
                 retryCount = 0;
             }
@@ -224,5 +224,6 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
+
 
 
