@@ -146,9 +146,9 @@ app.post('/livechat/webhook', (req, res) => {
 
                         if (retryCount === maxRetries) {
                             if (status) {
-                                botAnswer = `No answer from bot. Status: ${status} ${statusText || ''}`.trim();
+                                botAnswer = `☹️ No answer from bot. Status: ${status} ${statusText || ''}`.trim();
                             } else {
-                                botAnswer = `No answer from bot.`;
+                                botAnswer = `☹️ No answer from bot.`;
                             }
                         }
 
@@ -224,4 +224,5 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
+
 
