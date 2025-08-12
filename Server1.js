@@ -39,8 +39,9 @@ function verifySignature(req) {
 }
 
 app.post('/livechat/webhook', (req, res) => {
-    res.status(200).send('OK');
     console.log(JSON.stringify(req.body, null, 2));
+    res.status(200).send('OK');
+    
 
     (async () => {
         const messageText = req.body.payload?.event?.text;
@@ -227,6 +228,7 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
+
 
 
 
