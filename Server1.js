@@ -100,7 +100,8 @@ app.post('/livechat/webhook', (req, res) => {
             const visitorMessageData = {
                 visitorMessage: messageText,
                 botResponse: null,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                threadId: threadId
             };
             chatMessages.get(chatId).messages.push(visitorMessageData);
 
@@ -169,7 +170,8 @@ app.post('/livechat/webhook', (req, res) => {
             const messageData = {
                 visitorMessage: messageText,
                 botResponse: botAnswer,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                threadId: threadId
             };
 
             chatMessages.get(chatId).messages.push(messageData);
@@ -224,7 +226,6 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
-
 
 
 
