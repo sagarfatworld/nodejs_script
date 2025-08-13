@@ -39,16 +39,40 @@ function verifySignature(req) {
 }
 
 app.post('/livechat/webhook', (req, res) => {
-    console.log(JSON.stringify(req.body, null, 2));
-    console.log('---------------------------------');
     res.status(200).send('OK');
-    
 
     (async () => {
-        const messageText = req.body.payload?.event?.text;
-        const chatId = req.body.payload?.chat_id;
-        const threadId = req.body.payload?.thread_id;
-        const eventId = req.body.payload?.event?.id;
+        let messageText = null;
+        let chatId = null;
+        let threadId = null;
+        let eventId = null;
+
+        // Detect webhook type
+	if (req.body.action === "incoming_event") {
+	    messageText = req.body.payload?.event?.text;
+	    chatId = req.body.payload?.chat_id;
+	    threadId = req.body.payload?.thread_id;
+	    eventId = req.body.payload?.event?.id;
+
+	} else if (req.body.action === "incoming_chat") {
+	    const events = req.body.payload?.chat?.thread?.events || [];
+	    const customerIds = (req.body.payload?.chat?.users || [])
+	        .filter(u => u.type === "customer")
+	        .map(u => u.id);
+
+	    const firstCustomerMsg = events.find(ev =>
+	        ev.type === "message" &&
+	        ev.text &&
+	        customerIds.includes(ev.author_id)
+	    );
+
+	    messageText = firstCustomerMsg?.text || null;
+	    chatId = req.body.payload?.chat?.id;
+	    threadId = req.body.payload?.chat?.thread?.id;
+	    eventId = firstCustomerMsg?.id || null;
+	}
+
+
         const agentId = req.body.additional_data?.chat_presence_user_ids?.find(id => id.includes('@')) || null;
 
         if (!messageText || !chatId || !threadId || !eventId) {
@@ -57,6 +81,7 @@ app.post('/livechat/webhook', (req, res) => {
         }
 
         console.log('-----------------------------');
+        console.log('Webhook Type:', req.body.action);
         console.log('Chat ID:', chatId);
         console.log('Thread ID:', threadId);
         console.log('Agent ID:', agentId);
@@ -229,10 +254,3 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
-
-
-
-
-
-
-
