@@ -54,6 +54,7 @@ app.post('/livechat/webhook', (req, res) => {
         }
 
         console.log('-----------------------------');
+        console.log(JSON.stringify(req.body, null, 2));
         console.log('Chat ID:', chatId);
         console.log('Thread ID:', threadId);
         console.log('Agent ID:', agentId);
@@ -224,6 +225,7 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
+
 
 
 
